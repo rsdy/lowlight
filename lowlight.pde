@@ -1,19 +1,20 @@
 #include "TimerOne.h"
 #include "OneWire.h"
 #include "DallasTemperature.h"
+#include "EEPROM.h"
 #include "util.h"
 
-static void blink_leds();
+static void _blink_leds();
 
-static OneWire onewire(2);
-static DallasTemperature _sensors(&onewire);
+static _onewire _onewire(2);
+static DallasTemperature _sensors(&_onewire);
 
 static struct {
 	uint8_t i;
 	uint8_t v[2][3];
 } leds = { 0, {{0,0,0}, {0,0,0}}};
 
-static void blink_leds() {
+static void _blink_leds() {
 	leds.i ^= 1;
 	PORTB ^= _BV(0) | _BV(1);
 
@@ -31,7 +32,7 @@ void setup() {
 
 	// by experimentation. this gives nice, constatn light on both leds, with
 	// minimal overlap
-	Timer1.attachInterrupt(blink_leds, 1500000);
+	Timer1.attachInterrupt(_blink_leds, 1500000);
 
 	_sensors.begin();
 }
