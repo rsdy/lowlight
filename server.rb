@@ -57,8 +57,7 @@ class Server
 
   def initialize
     @server = TCPServer.open $opts[:port]
-  #  @serial = SerialPort.open $opts[:tty], $opts[:baud].to_i, 8, 1, SerialPort::NONE
-    @serial = File.new 'pina', 'w'
+    @serial = SerialPort.open $opts[:tty], $opts[:baud].to_i, 8, 1, SerialPort::NONE
   end
 end
 
