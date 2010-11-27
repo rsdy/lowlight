@@ -27,17 +27,12 @@ require 'socket'
 require 'Qt4'
 
 class MainWindow < Qt::Dialog
-  def send_color led, color
-    TCPSocket.open('localhost', 12355) do |sock|
-      sock.write [led, color.red, color.green, color.blue]
-    end
-  end
-
   def create_picker led
     Qt::ColorDialog.new self do |d|
       d.setOption Qt::ColorDialog::NoButtons
       d.connect(SIGNAL('currentColorChanged(QColor)')) do |color|
-        p color
+        str = ['w', led, color.red, color.green, color.blue].pack('ACCCC')
+        TCPSocket.open('localhost', 12355) { |sock| sock.write str }
       end
     end
   end
@@ -69,3 +64,4 @@ app = Qt::Application.new ARGV
 window = MainWindow.new
 window.show
 app.exec
+
