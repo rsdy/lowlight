@@ -25,27 +25,147 @@
 require 'rubygems'
 require 'socket'
 require 'serialport'
+require 'narray'
+require 'fftw3'
 require 'trollop'
 
+class MultiplePopQueue
+  # the purpose of this class is to provide a queue which doesn't instantly
+  # remove the element which is popped, but lets pop_count number of pops happen
+  # before removing the element.
+  #
+  # it has thread synchronization which is essential for functionality
+  # the use case: multiple threads processing the same sequence of inputs
+  # without actually knowing of the other threads
+  #
+  def pop_count; @popmtx.synchronize { @popnum } end
+
+  def clear; @qmtx.synchronize { @que.clear } end
+
+  def empty?; size == 0 end
+
+  def <<(value); push value; end
+
+  def pop_count=(value)
+    @popmtx.synchronize { @popnum = value if value > 0 }
+  end
+
+  def push(value)
+    @qmtx.synchronize do
+      @que << value
+      @new_item.signal
+    end
+  end
+
+  def pop
+    @popmtx.synchronize do
+      if (@cntr += 1) == @popnum
+        @qmtx.synchronize do
+          ret = @que[0]
+          @que = @que[1..-1]
+        end
+
+        @cntr = 0
+
+        return ret
+      else
+        @qmtx.synchronize do
+          @new_item.wait(@qmtx) if @que[0].nil?
+          @que[0]
+        end
+      end
+    end
+  end
+
+  def initialize
+    @qmtx = Mutex.new
+    @que = []
+    @popnum = 1
+    @cntr = 0
+    @popmtx = Mutex.new
+    @new_item = ConditionVariable.new
+  end
+end
+
+class Sampler
+  def initialize dsp, rate
+    @dsp = File.new dsp, 'r'
+    # TODO this constant is dumped on a 32bit machine. due to the fact that this
+    # is actually a macro in the kernel which depends on the size of int, this
+    # might differ on different architectures. should do a c extension which
+    # calls the native macro
+    #
+    @dsp.ioctl 0xc0045002, [rate].pack('I') # SNDCTL_DSP_SPEED
+  end
+
+  def hann_window data
+    result = []
+    data.each_with_index do |x, i|
+      result[i] = x * (0.5 - 0.5 * Math::cos((2 * Math::PI * i) / (data.length - 1)))
+    end
+    result
+  end
+
+  def sample samples = 1024
+    data = hann_window @dsp.read(samples).unpack 'C*' # using 8 bit unsigned DSP
+    fft = FFTW3.fft(data)[1...data.length/2].abs # first data is DC
+  end
+
+  def close
+    @dsp.close
+  end
+end
+
 class Server
+  def start_sample_thread
+    @sample_queue ||= MultiplePopQueue.new
+    sampler = Sampler.new '/dev/dsp', 44100
+
+    Thread.new do
+      loop do
+        begin
+          @sample_queue << sampler.sample 1024
+          sleep 0.01
+        ensure
+          @sample_queue.clear
+          sampler.close
+        end
+      end
+    end
+  end
+
+  def start_writer_thread
+    @writer_queue ||= Queue.new
+
+    Thread.new do
+      loop do
+        @serial.write @writer_queue.pop
+        @serial.flush
+      end
+    end
+  end
+
+  def write_to_arduino sock
+    begin
+      @writer_queue << sock.read 4
+    ensure
+      sock.close unless sock.nil?
+    end
+  end
+
   def listen
     loop do
       begin
         sock = @server.accept
-
-        case sock.read 1
-        when 'w'
-          r = sock.read 4
-          (0...4).each { |i| puts r[i].to_s }
-          $stdout.flush
-
-          @serial.write r
-          @serial.flush
-        end
       rescue Errno::EBADF, IOError
         break
-      ensure
-        sock.close unless sock.nil?
+      end
+
+      case sock.read 1
+      when 'w'
+        write_to_arduino sock
+      when 's'
+        start_sampler_thread
       end
     end
   end
