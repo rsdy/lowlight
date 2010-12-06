@@ -30,7 +30,7 @@
 
 static void _blink__leds();
 
-static enum _colours {
+enum _colours {
 	RED = 0,
 	GREEN = 1,
 	BLUE = 2
