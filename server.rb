@@ -189,7 +189,7 @@ def start
   begin
     @server = Server.new
   rescue
-    print 'couldn\'t open serial port!'
+    puts "#{$0}: couldn\'t open serial port!"
     exit 2
   end
 end
@@ -198,7 +198,7 @@ $opts = Trollop::options do
   banner <<EOS
 Lowlight server application
 
-Usage: ./server.rb
+Usage: #{$0}
 
 Available options:
 EOS
@@ -207,19 +207,19 @@ EOS
   opt :baud,    'baud rate',          :short => 'b', :default => 9600,           :type => :int
   opt :port,    'port to listen on',  :short => 'p', :default => 12355
   opt :daemon,  'fork to background', :short => 'd'
-  opt :pidfile, 'the pidfile',        :short => 'P', :default => 'pid'
+  opt :pidfile, 'the pidfile',        :short => 'P', :default => '/tmp/llserver'
   opt :kill,    'kill already running background process'
 end
 
 if $opts[:kill]
   if File.exists? $opts[:pidfile]
-    Process.kill :SIGINT, File.open($opts[:pidfile], 'r') { |f| f.read }.to_i
+    Process.kill :SIGINT, File.read($opts[:pidfile]).to_i
     File.delete $opts[:pidfile]
 
-    print 'server.rb: background process killed successfully!'
+    puts "#{$0}: background process killed successfully!"
     exit 0
   else
-    print 'server.rb: no background process!'
+    puts "#{$0}: no background process!"
     exit 1
   end
 end
