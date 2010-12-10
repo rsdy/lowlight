@@ -31,7 +31,7 @@ class MainWindow < Qt::Dialog
     Qt::ColorDialog.new self do |d|
       d.setOption Qt::ColorDialog::NoButtons
       d.connect(SIGNAL('currentColorChanged(QColor)')) do |color|
-        str = ['w', led, color.red, color.green, color.blue].pack('ACCCC')
+        str = ['w', led, color.red, color.green, color.blue].pack('AC*')
         TCPSocket.open('localhost', 12355) { |sock| sock.write str }
       end
     end
@@ -43,8 +43,6 @@ class MainWindow < Qt::Dialog
       w.layout = Qt::HBoxLayout.new
       w.layout.addWidget create_picker 0
       w.layout.addWidget create_picker 1
-      w.minimumWidth = 1035
-      w.minimumHeight = 365
     end
   end
 
