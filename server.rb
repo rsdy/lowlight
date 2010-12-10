@@ -113,19 +113,37 @@ class Sampler
 end
 
 class Server
-  def start_sample_thread
-    @sample_queue ||= MultiplePopQueue.new
-    sampler = Sampler.new '/dev/dsp', 44100
-
+  def start_music_algorithm
     Thread.new do
       loop do
-        begin
-          @sample_queue << sampler.sample 1024
-          sleep 0.01
-        ensure
-          @sample_queue.clear
-          sampler.close
+        sample = @sample_queue.pop
+        arr = [0]
+
+        for i in 0..2
+          starti = 0+i*sample.length/3
+          endi = (i+1)*sample.length/3
+          num = sample[starti...endi].sum
+          arr << (num.real*num.real + num.image*num.image).to_i
         end
+
+        @writer_queue << arr.pack("C*")
+      end
+    end
+  end
+
+  def start_sampler_thread
+    @sample_queue ||= Queue.new
+
+    Thread.new do
+      begin
+        sampler = Sampler.new '/dev/dsp', 44100
+
+        loop do
+          @sample_queue << sampler.sample
+        end
+      ensure
+        @sample_queue.clear
+        sampler.close
       end
     end
   end
@@ -135,15 +153,20 @@ class Server
 
     Thread.new do
       loop do
-        @serial.write @writer_queue.pop
-        @serial.flush
+        begin
+          data = @writer_queue.pop
+          puts data.unpack 'C*' # using 8 bit unsigned DSP
+          @serial.write data
+          @serial.flush
+        rescue
+        end
       end
     end
   end
 
   def write_to_arduino sock
     begin
-      @writer_queue << sock.read 4
+      @writer_queue << sock.read(4)
     ensure
       sock.close unless sock.nil?
     end
@@ -162,6 +185,11 @@ class Server
         write_to_arduino sock
       when 's'
         start_sampler_thread
+        sock.close
+      when 'm'
+        start_sampler_thread
+        start_music_algorithm
+        sock.close
       end
     end
   end
@@ -174,6 +202,7 @@ class Server
   def initialize
     @server = TCPServer.open $opts[:port]
     @serial = SerialPort.open $opts[:tty], $opts[:baud].to_i, 8, 1, SerialPort::NONE
+    start_writer_thread
   end
 end
 
