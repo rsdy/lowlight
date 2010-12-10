@@ -94,17 +94,17 @@ class Sampler
     @dsp.ioctl 0xc0045002, [rate].pack('I') # SNDCTL_DSP_SPEED
   end
 
-  def hann_window data
+  def window data
     result = []
     data.each_with_index do |x, i|
-      result[i] = x * (0.5 - 0.5 * Math::cos((2 * Math::PI * i) / (data.length - 1)))
+      result[i] = x * Math::tanh(Math::cos(2*Math::PI*i/(data.length-1)) + Math::cos(Math::PI * data[-i] / (data.length - 1)))
     end
     result
   end
 
-  def sample samples = 1024
-    data = hann_window @dsp.read(samples).unpack 'C*' # using 8 bit unsigned DSP
-    fft = FFTW3.fft(data)[1...data.length/2].abs # first data is DC
+  def sample samples = 4096
+    data = window @dsp.read(samples).unpack 'C*' # using 8 bit unsigned DSP
+    fft = FFTW3.fft(data)[5...data.length/2] / data.length # first data is DC
   end
 
   def close
