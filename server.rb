@@ -42,7 +42,7 @@ class MultiplePopQueue
 
   def clear; @qmtx.synchronize { @que.clear } end
 
-  def empty?; size == 0 end
+  def empty?; @qmtx.synchronize { @que.size == 0 } end
 
   def <<(value); push value; end
 
@@ -53,28 +53,24 @@ class MultiplePopQueue
   def push(value)
     @qmtx.synchronize do
       @que << value
-      @new_item.signal
     end
+      @new_item.broadcast
   end
 
   def pop
-    @popmtx.synchronize do
-      if (@cntr += 1) == @popnum
-        @qmtx.synchronize do
-          ret = @que[0]
+    @qmtx.synchronize do
+      @new_item.wait(@qmtx) if @que.empty?
+      ret = @que[0]
+
+      @popmtx.synchronize do
+        if (@cntr += 1) == @popnum
           @que = @que[1..-1]
-        end
-
-        @cntr = 0
-
-        return ret
-      else
-        @qmtx.synchronize do
-          @new_item.wait(@qmtx) if @que[0].nil?
-          @que[0]
+          @cntr = 0
         end
       end
     end
+
+    return ret
   end
 
   def initialize
