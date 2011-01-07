@@ -74,6 +74,7 @@ void setup() {
 
 void loop() {
 	int i;
+	uint8_t *led;
 
 /* commented section, because we're not quite here yet
     float temp;
@@ -84,18 +85,20 @@ void loop() {
 */
 
 	// will change this to ethernet communication in the future
-	if(Serial.available() >= 4) {
+	if(Serial.available() > 3) {
 		i = Serial.read(); // which led to screw around with
 
 		if(i < 2) { // for security reasons
+			led = _leds.v[i];
+
 			// also, it would be ugly if the interrupt occured while modifying
 			// the led colours. detach the interrupt then reattach it if we're
 			// done with setting the levels
-			Timer1.detachInterrupt();
-			_leds.v[i][RED]   = Serial.read();
-			_leds.v[i][GREEN] = Serial.read();
-			_leds.v[i][BLUE]  = Serial.read();
-			Timer1.attachInterrupt(_blink_leds, 2000000);
+			TIMSK1 &= ~_BV(TOIE1);
+			led[RED]   = Serial.read();
+			led[GREEN] = Serial.read();
+			led[BLUE]  = Serial.read();
+			TIMSK1 |= _BV(TOIE1);
 		}
 	}
 }
