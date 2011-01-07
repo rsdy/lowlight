@@ -251,7 +251,7 @@ end
 
 if $opts[:daemon]
   fork do
-    File.open('pid', 'w') { |f| f.print Process.pid }
+    File.open($opts[:pidfile], 'w') { |f| f.print Process.pid }
     start.listen
   end
 else
