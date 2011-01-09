@@ -2,7 +2,7 @@
 #
 # Controller server for the arduino.
 #
-# Copyright (c) 2010 Peter Parkanyi <me@rhapsodhy.hu>.
+# Copyright (c) 2010-2011 Peter Parkanyi <me@rhapsodhy.hu>.
 #
 # Permission is hereby granted, free of charge, to any person obtaining a copy
 # of this software and associated documentation files (the "Software"), to deal
@@ -29,59 +29,7 @@ require 'narray'
 require 'fftw3'
 require 'trollop'
 
-class MultiplePopQueue
-  # the purpose of this class is to provide a queue which doesn't instantly
-  # remove the element which is popped, but lets pop_count number of pops happen
-  # before removing the element.
-  #
-  # it has thread synchronization which is essential for functionality
-  # the use case: multiple threads processing the same sequence of inputs
-  # without actually knowing of the other threads
-  #
-  def pop_count; @popmtx.synchronize { @popnum } end
-
-  def clear; @qmtx.synchronize { @que.clear } end
-
-  def empty?; @qmtx.synchronize { @que.size == 0 } end
-
-  def <<(value); push value; end
-
-  def pop_count=(value)
-    @popmtx.synchronize { @popnum = value if value > 0 }
-  end
-
-  def push(value)
-    @qmtx.synchronize do
-      @que << value
-    end
-      @new_item.broadcast
-  end
-
-  def pop
-    @qmtx.synchronize do
-      @new_item.wait(@qmtx) if @que.empty?
-      ret = @que[0]
-
-      @popmtx.synchronize do
-        if (@cntr += 1) == @popnum
-          @que = @que[1..-1]
-          @cntr = 0
-        end
-      end
-    end
-
-    return ret
-  end
-
-  def initialize
-    @qmtx = Mutex.new
-    @que = []
-    @popnum = 1
-    @cntr = 0
-    @popmtx = Mutex.new
-    @new_item = ConditionVariable.new
-  end
-end
+require 'lowlight'
 
 class Sampler
   def initialize dsp, rate
@@ -102,9 +50,9 @@ class Sampler
     result
   end
 
-  def sample samples = 4096
+  def sample samples
     data = window @dsp.read(samples).unpack 'C*' # using 8 bit unsigned DSP
-    fft = FFTW3.fft(data)[5...data.length/2] / data.length # first data is DC
+    fft = FFTW3.fft(data)[2...data.length/2] / data.length # first data is DC
   end
 
   def close
@@ -113,63 +61,57 @@ class Sampler
 end
 
 class Server
-  def start_music_algorithm
-    Thread.new do
-      loop do
-        sample = @sample_queue.pop
-        arr = [0]
+  def sample_to_rgb sample
+    arr = [0]
 
-        for i in 0..2
-          starti = 0+i*sample.length/3
-          endi = (i+1)*sample.length/3
-          num = sample[starti...endi].sum
-          arr << (num.real*num.real + num.image*num.image).to_i
+    for i in 0...3
+      starti = 0+i*sample.length/3
+      endi = (i+1)*sample.length/3
+      num = sample[starti...endi].sum
+      arr << (num.real*num.real + num.image*num.image).to_i
+    end
+
+    arr.pack("C*")
+  end
+
+  def sampler_thread
+    @sampler_running = true
+    sampler = Sampler.new '/dev/dsp', $opts[:rate]
+
+    while @sampler_running
+      sample = sampler.sample $opts[:chunk]
+      @writer_queue << sample_to_rgb(sample) if @sample_control
+
+      @listeners.each do |s|
+        begin
+          s.write [sample.size] + sample
+        rescue IOError
+          @listeners.remove s
         end
+      end
+    end
+  end
 
-        @writer_queue << arr.pack("C*")
+  def writer_thread
+    loop do
+      begin
+        data = @writer_queue.pop
+        @serial.write data
+        @serial.flush
+      rescue
+        # as if nothing happened
       end
     end
   end
 
   def start_sampler_thread
-    @sample_queue ||= Queue.new
-
-    Thread.new do
-      begin
-        sampler = Sampler.new '/dev/dsp', 44100
-
-        loop do
-          @sample_queue << sampler.sample
-        end
-      ensure
-        @sample_queue.clear
-        sampler.close
-      end
-    end
+    @listeners ||= []
+    Thread.new { sampler_thread }
   end
 
   def start_writer_thread
     @writer_queue ||= Queue.new
-
-    Thread.new do
-      loop do
-        begin
-          data = @writer_queue.pop
-          puts data.unpack 'C*' # using 8 bit unsigned DSP
-          @serial.write data
-          @serial.flush
-        rescue
-        end
-      end
-    end
-  end
-
-  def write_to_arduino sock
-    begin
-      @writer_queue << sock.read(4)
-    ensure
-      sock.close unless sock.nil?
-    end
+    Thread.new { writer_thread }
   end
 
   def listen
@@ -181,20 +123,32 @@ class Server
       end
 
       case sock.read 1
-      when 'w'
-        write_to_arduino sock
-      when 's'
-        start_sampler_thread
+      when Lowlight::WriteToArduino
+        @writer_queue << sock.read(4)
         sock.close
-      when 'm'
-        start_sampler_thread
-        start_music_algorithm
+
+      when Lowlight::StartSampler
+        start_sampler_thread unless @sampler_running
         sock.close
+
+      when Lowlight::SampleControl
+        @sample_control = true
+        start_sampler_thread unless @sampler_running
+        sock.close
+
+      when Lowlight::DisableSampleControl
+        @sample_control = false
+        @sampler_running = false
+        sock.close
+
+      when Lowlight::RequestSamples
+        @listeners << socket
       end
     end
   end
 
   def close
+    @listeners.each { |s| s.close } unless @listeners.nil?
     @server.close
     @serial.close
   end
@@ -230,7 +184,9 @@ EOS
 
   opt :tty,     'serial port to use', :short => 't', :default => '/dev/ttyUSB0', :type => :string
   opt :baud,    'baud rate',          :short => 'b', :default => 9600,           :type => :int
-  opt :port,    'port to listen on',  :short => 'p', :default => 12355
+  opt :port,    'port to listen on',  :short => 'p', :default => 12355,          :type => :int
+  opt :rate,    'sample rate to use', :short => 'r', :default => 44100,          :type => :int
+  opt :chunk,   'samples processed at once', :short => 'c', :default => 4096,    :type => :int
   opt :daemon,  'fork to background', :short => 'd'
   opt :pidfile, 'the pidfile',        :short => 'P', :default => '/tmp/llserver'
   opt :kill,    'kill already running background process'
