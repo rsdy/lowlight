@@ -22,9 +22,9 @@
  * THE SOFTWARE.
  */
 #include "TimerOne.h"
-#include "OneWire.h"
-#include "DallasTemperature.h"
-#include "EEPROM.h"
+//#include "OneWire.h"
+//#include "DallasTemperature.h"
+//#include "EEPROM.h"
 
 #include "util.h"
 
@@ -41,7 +41,7 @@ enum _colours {
 static struct {
 	uint8_t i;
 	uint8_t v[2][3];
-} _leds = { 0, {{255,100,255}, {0,128,255}}};
+} _leds = { 0, {{255,100,255}, {0,0,0}}};
 
 /*
 static OneWire _onewire(2);
@@ -49,8 +49,8 @@ static DallasTemperature _sensors(&_onewire);
 */
 
 static void _blink_leds() {
-	_leds.i ^= 1;
-	PORTB ^= _BV(0) | _BV(1);
+	//_leds.i ^= 1;
+	//PORTB ^= _BV(0) | _BV(1);
 
 	analogWrite(3, _leds.v[_leds.i][RED]);
 	analogWrite(5, _leds.v[_leds.i][GREEN]);

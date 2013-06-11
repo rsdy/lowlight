@@ -34,6 +34,14 @@ I think usage is quite self-explanatory from now.
 
 Have fun.
 
+Components
+----------
+2n2368a
+osta5131a-c
+2x180R
+4x100R
+ds18b20
+
 Licence
 -------
 Distributed under the MIT licence

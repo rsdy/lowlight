@@ -39,7 +39,7 @@ class Sampler
     # might differ on different architectures. should do a c extension which
     # calls the native macro
     #
-    @dsp.ioctl 0xc0045002, [rate].pack('I') # SNDCTL_DSP_SPEED
+    @dsp.ioctl 0xc0085002, [rate].pack('I') # SNDCTL_DSP_SPEED
   end
 
   def window data
@@ -94,8 +94,9 @@ class Server
 
   def writer_thread
     loop do
+      sleep(0.01) until data = @writer_queue.pop
+
       begin
-        data = @writer_queue.pop
         @serial.write data
         @serial.flush
       rescue
@@ -110,7 +111,7 @@ class Server
   end
 
   def start_writer_thread
-    @writer_queue ||= Queue.new
+    @writer_queue ||= []
     Thread.new { writer_thread }
   end
 
@@ -165,12 +166,12 @@ def start
     @server.close
   end
 
-  begin
+  #begin
     @server = Server.new
-  rescue
-    puts "#{$0}: couldn\'t open serial port!"
-    exit 2
-  end
+  #rescue
+    #puts "#{$0}: couldn\'t open serial port!"
+    #exit 2
+  #end
 end
 
 $opts = Trollop::options do
