@@ -26,7 +26,7 @@ require 'rubygems'
 require 'socket'
 require 'Qt4'
 
-require 'lowlight'
+require './lowlight'
 
 module SocketConnection
   def socket &f
@@ -49,7 +49,7 @@ class MainWindow < Qt::Dialog
     Qt::ColorDialog.new self do |d|
       d.setOption Qt::ColorDialog::NoButtons
       d.connect(SIGNAL('currentColorChanged(QColor)')) do |color|
-        send_data [Lowlight::WriteToArduino, led, 255-color.red, 255-color.green, 255-color.blue].pack('AC*')
+        send_data "#{Lowlight::WriteToArduino}#%02x%02x%02x" % [color.red, color.green, color.blue]
       end
     end
   end

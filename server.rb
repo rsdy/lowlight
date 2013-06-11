@@ -29,7 +29,7 @@ require 'narray'
 require 'fftw3'
 require 'trollop'
 
-require 'lowlight'
+require './lowlight'
 
 class Sampler
   def initialize dsp, rate
@@ -39,7 +39,7 @@ class Sampler
     # might differ on different architectures. should do a c extension which
     # calls the native macro
     #
-    @dsp.ioctl 0xc0085002, [rate].pack('I') # SNDCTL_DSP_SPEED
+    @dsp.ioctl 0xc0045002, [rate].pack('I') # SNDCTL_DSP_SPEED
   end
 
   def window data
@@ -52,7 +52,7 @@ class Sampler
 
   def sample samples
     data = window @dsp.read(samples).unpack 'C*' # using 8 bit unsigned DSP
-    fft = FFTW3.fft(data)[2...data.length/2] / data.length # first data is DC
+    return FFTW3.fft(data)[2...data.length/2] / data.length # first data is DC
   end
 
   def close
@@ -62,16 +62,12 @@ end
 
 class Server
   def sample_to_rgb sample
-    arr = [0]
-
-    for i in 0...3
-      starti = 0+i*sample.length/3
+    '#' + (0...3).map { |i|
+      starti = i*sample.length/3
       endi = (i+1)*sample.length/3
       num = sample[starti...endi].sum
-      arr << (num.real*num.real + num.image*num.image).to_i
-    end
-
-    arr.pack("C*")
+      '%02x' % (num.real*num.real + num.imag*num.imag).to_i
+    }.join
   end
 
   def sampler_thread
@@ -79,13 +75,13 @@ class Server
     sampler = Sampler.new '/dev/dsp', $opts[:rate]
 
     while @sampler_running
-      sample = sampler.sample $opts[:chunk]
-      @writer_queue << sample_to_rgb(sample) if @sample_control
+      @writer_queue << sample_to_rgb(sampler.sample($opts[:chunk]))
 
       @listeners.each do |s|
         begin
           s.write [sample.size] + sample
         rescue IOError
+          print '5'
           @listeners.remove s
         end
       end
@@ -125,7 +121,7 @@ class Server
 
       case sock.read 1
       when Lowlight::WriteToArduino
-        @writer_queue << sock.read(4)
+        @writer_queue << sock.read(7)
         sock.close
 
       when Lowlight::StartSampler
@@ -143,7 +139,7 @@ class Server
         sock.close
 
       when Lowlight::RequestSamples
-        @listeners << socket
+        @listeners << sock
       end
     end
   end
